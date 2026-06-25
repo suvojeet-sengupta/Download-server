@@ -7,7 +7,12 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3009;
-const PASSWORD = process.env.PASSWORD || 'Suvojeet123';
+const PASSWORD = process.env.PASSWORD;
+
+if (!PASSWORD) {
+  console.error('FATAL ERROR: PASSWORD environment variable is not defined.');
+  process.exit(1);
+}
 
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(UPLOADS_DIR, 'temp');
