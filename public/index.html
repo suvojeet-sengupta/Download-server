@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuvShare - High Performance File Cloud</title>
+  
+  <!-- Font Integration -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome & Icon packs -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard-layout">
+
+  <!-- Background Decorative Glowing Core -->
+  <div class="glow-core glow-primary"></div>
+  <div class="glow-core glow-secondary"></div>
+
+  <!-- AUTHENTICATION LAYER -->
+  <div id="auth-screen" class="screen active">
+    <div class="auth-panel glass-morphic">
+      <div class="auth-brand">
+        <div class="brand-badge"><i class="fa-solid fa-server"></i></div>
+        <h1>Suv<span>Share</span></h1>
+      </div>
+      <h2 class="panel-title">Enter Admin Credentials</h2>
+      <p class="panel-subtitle">Access your personal VPS file storage console</p>
+      
+      <form id="auth-form" class="auth-inputs-form">
+        <div class="input-container">
+          <i class="fa-solid fa-shield-halved input-prefix-icon"></i>
+          <input type="password" id="auth-password" placeholder="Access Password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn-glow-primary btn-block">
+          <span>Authorize Connection</span>
+          <i class="fa-solid fa-arrow-right-to-bracket"></i>
+        </button>
+        <p id="auth-error" class="error-msg hide"></p>
+      </form>
+      <div class="auth-footer">
+        <p><i class="fa-solid fa-lock"></i> Connection secured with SHA-256 validation</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APPLICATION CORE -->
+  <div id="dashboard-screen" class="screen">
+    
+    <!-- Mobile Navigation Bar -->
+    <div class="mobile-navbar">
+      <div class="brand-mobile">
+        <i class="fa-solid fa-cloud-arrow-up brand-logo-icon"></i>
+        <h3>Suv<span>Share</span></h3>
+      </div>
+      <button id="mobile-menu-toggle" class="btn-icon-m">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+    </div>
+
+    <div class="app-workspace">
+      
+      <!-- Sidebar Control Center -->
+      <aside class="sidebar" id="sidebar-drawer">
+        <div class="sidebar-header">
+          <div class="brand">
+            <div class="logo-box">
+              <i class="fa-solid fa-cloud-arrow-up"></i>
+            </div>
+            <h2>Suv<span>Share</span></h2>
+          </div>
+          <button id="mobile-menu-close" class="btn-icon-m hide-desktop">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <!-- App Health Stats Block -->
+        <div class="stats-panel-widget">
+          <div class="widget-title">
+            <span><i class="fa-solid fa-chart-simple"></i> System Status</span>
+            <span class="online-indicator"><span class="dot"></span> Online</span>
+          </div>
+          <div class="widget-metrics">
+            <div class="metric-item">
+              <span class="label">Files Stored</span>
+              <span class="value" id="stats-total-files">0</span>
+            </div>
+            <div class="metric-item" style="flex-direction: column; align-items: stretch; gap: 6px; width: 100%;">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <span class="label">Storage Used</span>
+                <span class="value" id="stats-total-size">0 B</span>
+              </div>
+              <div class="progress-bar-bg" style="height: 4px; margin-bottom: 0; background: rgba(255,255,255,0.04); border-radius: 4px; overflow: hidden; width: 100%;">
+                <div class="progress-bar-fill" id="stats-storage-bar" style="width: 0%; height: 100%; transition: width 0.3s ease;"></div>
+              </div>
+            </div>
+            <div class="metric-item">
+              <span class="label">Downloads</span>
+              <span class="value" id="stats-total-downloads">0</span>
+            </div>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <span class="nav-section-title">Navigation</span>
+          <a href="#" class="nav-link active" data-target="upload-section">
+            <i class="fa-solid fa-circle-arrow-up"></i>
+            <span>Upload Console</span>
+          </a>
+          <a href="#" class="nav-link" data-target="manage-section">
+            <i class="fa-solid fa-folder-open"></i>
+            <span>My Cloud Storage</span>
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="connection-info">
+            <span class="domain-text">download.suvojeetsengupta.in</span>
+            <span class="vps-tag"><i class="fa-solid fa-network-wired"></i> Host Proxy Port: 3009</span>
+          </div>
+          <button id="logout-btn" class="btn-logout">
+            <i class="fa-solid fa-power-off"></i>
+            <span>Lock Console</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Panel Work Area -->
+      <div class="work-area">
+        
+        <!-- SECTION 1: UPLOADER -->
+        <section id="upload-section" class="panel-section active">
+          <div class="panel-header-desc">
+            <h1>Upload Center</h1>
+            <p>Upload files directly to your secure VPS cloud storage. Links can be instantly shared.</p>
+          </div>
+
+          <div class="upload-grid-wrapper">
+            <!-- Drag and Drop Box -->
+            <div class="uploader-box-container glass-morphic">
+              <div id="drop-zone" class="uploader-drop-zone">
+                <input type="file" id="file-input" multiple class="hide">
+                <div class="drop-zone-display">
+                  <div class="pulse-upload-circle">
+                    <i class="fa-solid fa-arrow-up-from-bracket"></i>
+                  </div>
+                  <h3>Drag & Drop Files Here</h3>
+                  <p>Or click to <span class="browse-link-glow">select files from your device</span></p>
+                  <div class="limit-tags">
+                    <span><i class="fa-solid fa-cloud"></i> Max File Size: 10 GB</span>
+                    <span><i class="fa-solid fa-bolt"></i> Resumable Support</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Upload Queue list -->
+            <div id="uploads-container" class="queue-panel glass-morphic hide">
+              <div class="queue-header">
+                <h3>Active Upload Queue</h3>
+                <span class="queue-sub">Files are sliced and sent as secure chunks</span>
+              </div>
+              <div id="active-uploads-list" class="queue-list-scroll">
+                <!-- Javascript injects progress elements -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SECTION 2: FILE MANAGEMENT -->
+        <section id="manage-section" class="panel-section">
+          <div class="management-control-bar">
+            <div class="panel-header-desc">
+              <h1>Cloud Files</h1>
+              <p>Search, copy links, generate QR codes, and manage your cloud storage files.</p>
+            </div>
+
+            <div class="controls-toolbox">
+              <!-- Search bar -->
+              <div class="search-input-box">
+                <i class="fa-solid fa-magnifying-glass search-prefix-i"></i>
+                <input type="text" id="search-input" placeholder="Search by file name...">
+              </div>
+              
+              <!-- Layout Toggle -->
+              <div class="layout-toggles">
+                <button id="toggle-grid" class="btn-toggle active" title="Grid View">
+                  <i class="fa-solid fa-grid-2-line"></i>
+                  <i class="fa-solid fa-grip"></i>
+                </button>
+                <button id="toggle-list" class="btn-toggle" title="List View">
+                  <i class="fa-solid fa-list"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- File Grid Container -->
+          <div id="files-grid-container" class="files-grid grid-layout">
+            <!-- Grid cards will be injected here -->
+          </div>
+
+          <!-- Empty State -->
+          <div id="files-empty-state" class="empty-cloud-message hide">
+            <div class="empty-cloud-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+            <h3>No files stored in VPS</h3>
+            <p>Go to the Upload Console to transfer files to your personal server.</p>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- QR CODE MODAL POPUP -->
+  <div id="qr-modal" class="modal-layer">
+    <div class="modal-box glass-morphic">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-qrcode"></i> Scan QR Code</h3>
+        <button id="qr-close-btn" class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body-qr">
+        <p class="modal-desc">Scan this code with a mobile device to instantly begin direct download.</p>
+        <div class="qr-canvas-holder">
+          <img id="qr-image" src="" alt="QR Code Link">
+        </div>
+        <div class="qr-link-copy-block">
+          <input type="text" id="qr-link-input" readonly>
+          <button id="qr-copy-btn" class="btn-glow-primary btn-sm"><i class="fa-solid fa-copy"></i> Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Area -->
+  <div id="toast-container" class="toast-stack"></div>
+
+  <!-- Dynamic Application Script -->
+  <script src="app.js"></script>
+</body>
+</html>

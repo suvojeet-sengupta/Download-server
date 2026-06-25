@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  suvshare:
+    build: .
+    container_name: suvshare_app
+    ports:
+      - "${PORT}:${PORT}"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./db.json:/app/db.json
+      - ./.env:/app/.env
+    env_file:
+      - .env
+    restart: always
