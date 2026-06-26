@@ -97,6 +97,15 @@ function formatBytes(bytes, decimals = 2) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
+function generateRandomBase62(length) {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
 // Helper to find active session by fingerprint
 function findSessionByFingerprint(fingerprint) {
   if (!fs.existsSync(TEMP_DIR)) return null;
@@ -516,10 +525,10 @@ app.post('/api/shorten', authenticate, (req, res) => {
       return res.status(400).json({ error: 'This custom short link alias already exists.' });
     }
   } else {
-    // Generate a unique code starting with "suvo" followed by random hex characters
+    // Generate a unique code starting with "suvo" followed by random base62 characters (3 characters)
     let attempts = 0;
     do {
-      const randomPart = crypto.randomBytes(3).toString('hex');
+      const randomPart = generateRandomBase62(3);
       code = `suvo${randomPart}`;
       attempts++;
     } while (db.links.some(l => l.id === code) && attempts < 100);
@@ -540,7 +549,7 @@ app.post('/api/shorten', authenticate, (req, res) => {
   writeDatabase(db);
 
   const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
-  const shortUrl = `${baseUrl}/s/${code}`;
+  const shortUrl = `${baseUrl}/${code}`;
 
   res.json({
     success: true,
@@ -559,7 +568,7 @@ app.get('/api/shorten', authenticate, (req, res) => {
   const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
   const linksWithUrls = links.map(link => ({
     ...link,
-    shortUrl: `${baseUrl}/s/${link.id}`
+    shortUrl: `${baseUrl}/${link.id}`
   }));
 
   res.json({ links: linksWithUrls });
@@ -620,9 +629,37 @@ const downloadHandler = (req, res) => {
 app.get('/d/:id', downloadHandler);
 app.get('/d/:id/:filename', downloadHandler);
 
-// Short URL Redirect Endpoint
+// Backward Compatibility Short URL Redirect Endpoint
 app.get('/s/:code', (req, res) => {
   const { code } = req.params;
+  const db = readDatabase();
+  const links = db.links || [];
+  const linkIndex = links.findIndex(l => l.id === code);
+
+  if (linkIndex === -1) {
+    return res.status(404).send('<h1>404 - Link Not Found</h1><p>The shortened link you are trying to access does not exist or has been deleted.</p>');
+  }
+
+  const link = links[linkIndex];
+  
+  // Increment clicks count
+  if (!link.clicks) link.clicks = 0;
+  link.clicks += 1;
+  writeDatabase(db);
+
+  // Redirect to original long URL
+  res.redirect(link.longUrl);
+});
+
+// Short URL Redirect Endpoint (New Direct format)
+app.get('/:code', (req, res, next) => {
+  const { code } = req.params;
+  
+  // We only intercept codes that start with 'suvo'
+  if (!code.startsWith('suvo')) {
+    return next();
+  }
+
   const db = readDatabase();
   const links = db.links || [];
   const linkIndex = links.findIndex(l => l.id === code);
