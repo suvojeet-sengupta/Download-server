@@ -8,6 +8,8 @@ const https = require('https');
 const app = express();
 const PORT = process.env.PORT || 3009;
 const PASSWORD = process.env.PASSWORD;
+const PUBLIC_URL = process.env.PUBLIC_URL || '';
+
 
 if (!PASSWORD) {
   console.error('FATAL ERROR: PASSWORD environment variable is not defined.');
@@ -212,10 +214,9 @@ app.post('/api/upload', authenticate, upload.single('file'), (req, res) => {
   writeDatabase(db);
 
   // Construct links
-  const host = req.get('host');
-  const protocol = req.protocol;
-  const downloadUrl = `${protocol}://${host}/d/${fileData.id}/${encodeURIComponent(fileData.name)}`;
-  const directUrl = `${protocol}://${host}/d/${fileData.id}`;
+  const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  const downloadUrl = `${baseUrl}/d/${fileData.id}/${encodeURIComponent(fileData.name)}`;
+  const directUrl = `${baseUrl}/d/${fileData.id}`;
 
   // Send Telegram Alert
   const tgText = `📤 <b>New File Uploaded on SuvShare!</b>\n\n📁 <b>Name:</b> <code>${fileData.name}</code>\n⚖️ <b>Size:</b> <code>${formatBytes(fileData.size)}</code>\n🏷️ <b>Type:</b> <code>${fileData.mimeType}</code>\n\n🔗 <b>Link:</b> <a href="${downloadUrl}">${downloadUrl}</a>`;
@@ -402,10 +403,9 @@ app.post('/api/upload/chunk', authenticate, upload.single('chunk'), (req, res) =
       db.files.push(fileData);
       writeDatabase(db);
 
-      const host = req.get('host');
-      const protocol = req.protocol;
-      const downloadUrl = `${protocol}://${host}/d/${fileData.id}/${encodeURIComponent(fileData.name)}`;
-      const directUrl = `${protocol}://${host}/d/${fileData.id}`;
+      const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+      const downloadUrl = `${baseUrl}/d/${fileData.id}/${encodeURIComponent(fileData.name)}`;
+      const directUrl = `${baseUrl}/d/${fileData.id}`;
 
       // Send Telegram Alert
       const tgText = `📤 <b>New File Uploaded on SuvShare!</b>\n\n📁 <b>Name:</b> <code>${fileData.name}</code>\n⚖️ <b>Size:</b> <code>${formatBytes(fileData.size)}</code>\n🏷️ <b>Type:</b> <code>${fileData.mimeType}</code>\n\n🔗 <b>Link:</b> <a href="${downloadUrl}">${downloadUrl}</a>`;
@@ -443,13 +443,12 @@ app.get('/api/files', authenticate, (req, res) => {
   // Sort files by upload date (newest first)
   const sortedFiles = [...db.files].sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
   
-  const host = req.get('host');
-  const protocol = req.protocol;
+  const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
   
   const filesWithUrls = sortedFiles.map(file => ({
     ...file,
-    downloadUrl: `${protocol}://${host}/d/${file.id}/${encodeURIComponent(file.name)}`,
-    directUrl: `${protocol}://${host}/d/${file.id}`
+    downloadUrl: `${baseUrl}/d/${file.id}/${encodeURIComponent(file.name)}`,
+    directUrl: `${baseUrl}/d/${file.id}`
   }));
 
   res.json({ files: filesWithUrls, maxStorage: MAX_STORAGE_LIMIT });
@@ -600,5 +599,6 @@ function startTelegramBotPolling() {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`SuvShare server listening at http://0.0.0.0:${PORT}`);
   // Start bot update polling
-  startTelegramBotPolling();
+  // startTelegramBotPolling();
 });
+
