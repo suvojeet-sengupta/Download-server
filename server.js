@@ -483,6 +483,107 @@ app.delete('/api/files/:id', authenticate, (req, res) => {
   res.json({ success: true });
 });
 
+// ==========================================
+// URL Shortener API Routes
+// ==========================================
+
+// Shorten a long URL
+app.post('/api/shorten', authenticate, (req, res) => {
+  const { url, customAlias } = req.body;
+  if (!url) {
+    return res.status(400).json({ error: 'URL parameter is required' });
+  }
+
+  // Ensure URL starts with http:// or https://
+  let longUrl = url.trim();
+  if (!/^https?:\/\//i.test(longUrl)) {
+    longUrl = 'https://' + longUrl;
+  }
+
+  const db = readDatabase();
+  if (!db.links) {
+    db.links = [];
+  }
+
+  let code = customAlias ? customAlias.trim() : '';
+  if (code) {
+    // If custom alias is provided, verify it is unique and starts with "suvo"
+    if (!code.startsWith('suvo')) {
+      return res.status(400).json({ error: 'Custom alias must start with "suvo"' });
+    }
+    const exists = db.links.some(l => l.id === code);
+    if (exists) {
+      return res.status(400).json({ error: 'This custom short link alias already exists.' });
+    }
+  } else {
+    // Generate a unique code starting with "suvo" followed by random hex characters
+    let attempts = 0;
+    do {
+      const randomPart = crypto.randomBytes(3).toString('hex');
+      code = `suvo${randomPart}`;
+      attempts++;
+    } while (db.links.some(l => l.id === code) && attempts < 100);
+
+    if (attempts >= 100) {
+      return res.status(500).json({ error: 'Failed to generate a unique short link alias.' });
+    }
+  }
+
+  const linkData = {
+    id: code,
+    longUrl: longUrl,
+    clicks: 0,
+    createdAt: new Date().toISOString()
+  };
+
+  db.links.push(linkData);
+  writeDatabase(db);
+
+  const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  const shortUrl = `${baseUrl}/s/${code}`;
+
+  res.json({
+    success: true,
+    link: {
+      ...linkData,
+      shortUrl
+    }
+  });
+});
+
+// List shortened URLs
+app.get('/api/shorten', authenticate, (req, res) => {
+  const db = readDatabase();
+  const links = db.links || [];
+  
+  const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  const linksWithUrls = links.map(link => ({
+    ...link,
+    shortUrl: `${baseUrl}/s/${link.id}`
+  }));
+
+  res.json({ links: linksWithUrls });
+});
+
+// Delete shortened URL
+app.delete('/api/shorten/:code', authenticate, (req, res) => {
+  const { code } = req.params;
+  const db = readDatabase();
+  if (!db.links) {
+    db.links = [];
+  }
+
+  const linkIndex = db.links.findIndex(l => l.id === code);
+  if (linkIndex === -1) {
+    return res.status(404).json({ error: 'Shortened link not found' });
+  }
+
+  db.links.splice(linkIndex, 1);
+  writeDatabase(db);
+
+  res.json({ success: true });
+});
+
 // Download files (Direct Download)
 // Supports both /d/:id and /d/:id/:filename
 const downloadHandler = (req, res) => {
@@ -518,6 +619,28 @@ const downloadHandler = (req, res) => {
 
 app.get('/d/:id', downloadHandler);
 app.get('/d/:id/:filename', downloadHandler);
+
+// Short URL Redirect Endpoint
+app.get('/s/:code', (req, res) => {
+  const { code } = req.params;
+  const db = readDatabase();
+  const links = db.links || [];
+  const linkIndex = links.findIndex(l => l.id === code);
+
+  if (linkIndex === -1) {
+    return res.status(404).send('<h1>404 - Link Not Found</h1><p>The shortened link you are trying to access does not exist or has been deleted.</p>');
+  }
+
+  const link = links[linkIndex];
+  
+  // Increment clicks count
+  if (!link.clicks) link.clicks = 0;
+  link.clicks += 1;
+  writeDatabase(db);
+
+  // Redirect to original long URL
+  res.redirect(link.longUrl);
+});
 
 // Start Telegram Bot update polling to dynamically register Chat ID
 function startTelegramBotPolling() {
