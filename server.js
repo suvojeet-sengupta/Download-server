@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
+const archiver = require('archiver');
 
 const app = express();
 const PORT = process.env.PORT || 3009;
@@ -130,6 +131,11 @@ function findSessionByFingerprint(fingerprint) {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Explicit route for /
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Configure Multer Disk Storage for temporary files
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -213,6 +219,7 @@ app.post('/api/upload', authenticate, upload.single('file'), (req, res) => {
   const fileData = {
     id: id,
     name: req.file.originalname,
+    type: 'file',
     size: req.file.size,
     mimeType: req.file.mimetype,
     uploadedAt: new Date().toISOString(),
@@ -241,10 +248,44 @@ app.post('/api/upload', authenticate, upload.single('file'), (req, res) => {
   });
 });
 
+// Create folder entry
+app.post('/api/folder/create', authenticate, (req, res) => {
+  const { name, size } = req.body;
+  
+  const currentUsed = getTotalStorageUsed();
+  if (currentUsed + parseInt(size) > MAX_STORAGE_LIMIT) {
+    return res.status(400).json({ error: 'Storage capacity full: 20 GB limit reached.' });
+  }
+
+  const id = crypto.randomBytes(4).toString('hex');
+  const db = readDatabase();
+  const folderData = {
+    id: id,
+    name: name,
+    type: 'folder',
+    size: parseInt(size) || 0,
+    uploadedAt: new Date().toISOString(),
+    downloads: 0,
+    files: []
+  };
+
+  db.files.push(folderData);
+  writeDatabase(db);
+  
+  fs.mkdirSync(path.join(UPLOADS_DIR, id), { recursive: true });
+
+  const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  const downloadUrl = `${baseUrl}/d/${id}`;
+  const tgText = `📤 <b>New Folder Uploaded on SuvShare!</b>\n\n📁 <b>Name:</b> <code>${name}</code>\n⚖️ <b>Size:</b> <code>${formatBytes(size)}</code>\n\n🔗 <b>Link:</b> <a href="${downloadUrl}">${downloadUrl}</a>`;
+  sendTelegramMessage(tgText);
+
+  res.json({ success: true, folderId: id });
+});
+
 // Initialize or resume chunked upload
 app.post('/api/upload/init', authenticate, (req, res) => {
-  const { name, size, mimeType, chunkSize, fingerprint } = req.body;
-  if (!name || !size || !fingerprint) {
+  const { name, size, mimeType, chunkSize, fingerprint, folderId, relativePath } = req.body;
+  if (!name || size === undefined || !fingerprint) {
     return res.status(400).json({ error: 'Missing upload metadata' });
   }
 
@@ -280,7 +321,7 @@ app.post('/api/upload/init', authenticate, (req, res) => {
   const tempDir = path.join(TEMP_DIR, uploadId);
   fs.mkdirSync(tempDir, { recursive: true });
 
-  const totalChunks = Math.ceil(size / chunkSize);
+  const totalChunks = Math.ceil(size / chunkSize) || 1;
   const meta = {
     uploadId,
     name,
@@ -289,6 +330,8 @@ app.post('/api/upload/init', authenticate, (req, res) => {
     chunkSize,
     totalChunks,
     fingerprint,
+    folderId,
+    relativePath,
     createdAt: new Date().toISOString()
   };
 
@@ -357,13 +400,18 @@ app.post('/api/upload/chunk', authenticate, upload.single('chunk'), (req, res) =
     }
   }
 
-  if (complete) {
-    // Merge all chunks
-    const finalDir = path.join(UPLOADS_DIR, uploadId);
-    fs.mkdirSync(finalDir, { recursive: true });
-    const finalPath = path.join(finalDir, meta.name);
+    if (complete) {
+      // Merge all chunks
+      let finalDir = path.join(UPLOADS_DIR, uploadId);
+      let finalPath = path.join(finalDir, meta.name);
 
-    const writeStream = fs.createWriteStream(finalPath);
+      if (meta.folderId) {
+        finalDir = path.join(UPLOADS_DIR, meta.folderId, path.dirname(meta.relativePath));
+        finalPath = path.join(UPLOADS_DIR, meta.folderId, meta.relativePath);
+      }
+      fs.mkdirSync(finalDir, { recursive: true });
+
+      const writeStream = fs.createWriteStream(finalPath);
 
     const mergeChunks = (i) => {
       if (i === meta.totalChunks) {
@@ -400,25 +448,47 @@ app.post('/api/upload/chunk', authenticate, upload.single('chunk'), (req, res) =
 
       // Add file to DB
       const db = readDatabase();
-      const fileData = {
-        id: uploadId,
-        name: meta.name,
-        size: meta.size,
-        mimeType: meta.mimeType,
-        uploadedAt: new Date().toISOString(),
-        downloads: 0
-      };
-
-      db.files.push(fileData);
-      writeDatabase(db);
-
+      let fileData;
+      
       const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
-      const downloadUrl = `${baseUrl}/d/${fileData.id}/${encodeURIComponent(fileData.name)}`;
-      const directUrl = `${baseUrl}/d/${fileData.id}`;
+      let downloadUrl, directUrl;
 
-      // Send Telegram Alert
-      const tgText = `📤 <b>New File Uploaded on SuvShare!</b>\n\n📁 <b>Name:</b> <code>${fileData.name}</code>\n⚖️ <b>Size:</b> <code>${formatBytes(fileData.size)}</code>\n🏷️ <b>Type:</b> <code>${fileData.mimeType}</code>\n\n🔗 <b>Link:</b> <a href="${downloadUrl}">${downloadUrl}</a>`;
-      sendTelegramMessage(tgText);
+      if (meta.folderId) {
+        const folder = db.files.find(f => f.id === meta.folderId);
+        if (folder) {
+          fileData = {
+            name: meta.name,
+            relativePath: meta.relativePath,
+            size: meta.size,
+            mimeType: meta.mimeType
+          };
+          folder.files.push(fileData);
+          writeDatabase(db);
+        }
+        
+        downloadUrl = `${baseUrl}/d/${meta.folderId}`;
+        directUrl = downloadUrl;
+      } else {
+        fileData = {
+          id: uploadId,
+          name: meta.name,
+          type: 'file',
+          size: meta.size,
+          mimeType: meta.mimeType,
+          uploadedAt: new Date().toISOString(),
+          downloads: 0
+        };
+
+        db.files.push(fileData);
+        writeDatabase(db);
+
+        downloadUrl = `${baseUrl}/d/${fileData.id}/${encodeURIComponent(fileData.name)}`;
+        directUrl = `${baseUrl}/d/${fileData.id}`;
+
+        // Send Telegram Alert for single files only (folders have their own alert)
+        const tgText = `📤 <b>New File Uploaded on SuvShare!</b>\n\n📁 <b>Name:</b> <code>${fileData.name}</code>\n⚖️ <b>Size:</b> <code>${formatBytes(fileData.size)}</code>\n🏷️ <b>Type:</b> <code>${fileData.mimeType}</code>\n\n🔗 <b>Link:</b> <a href="${downloadUrl}">${downloadUrl}</a>`;
+        sendTelegramMessage(tgText);
+      }
 
       res.json({
         success: true,
@@ -594,40 +664,120 @@ app.delete('/api/shorten/:code', authenticate, (req, res) => {
 });
 
 // Download files (Direct Download)
-// Supports both /d/:id and /d/:id/:filename
+// Supports both /d/:id and /d/:id/*
 const downloadHandler = (req, res) => {
   const { id } = req.params;
+  const filename = req.params[0]; // For catch-all /d/:id/*
   const db = readDatabase();
   const fileIndex = db.files.findIndex(f => f.id === id);
 
   if (fileIndex === -1) {
-    return res.status(404).send('<h1>404 - File Not Found</h1><p>The file you are trying to download does not exist or has been deleted.</p>');
+    return res.status(404).send('<h1>404 - Not Found</h1><p>The file or folder does not exist.</p>');
   }
 
-  const file = db.files[fileIndex];
-  const filePath = path.join(UPLOADS_DIR, id, file.name);
+  const item = db.files[fileIndex];
 
+  if (item.type === 'folder') {
+    if (req.query.zip === 'true') {
+      db.files[fileIndex].downloads += 1;
+      writeDatabase(db);
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${item.name}.zip"`);
+      
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.on('error', (err) => {
+        if (!res.headersSent) res.status(500).send('Error creating zip');
+      });
+      archive.pipe(res);
+      archive.directory(path.join(UPLOADS_DIR, id), false);
+      archive.finalize();
+      return;
+    }
+
+    if (filename) {
+      const file = item.files.find(f => f.name === filename || f.relativePath === filename);
+      if (!file) return res.status(404).send('File not found in folder.');
+      
+      const filePath = path.join(UPLOADS_DIR, id, file.relativePath);
+      if (!fs.existsSync(filePath)) return res.status(404).send('File missing.');
+      
+      return res.download(filePath, file.name);
+    }
+
+    const baseUrl = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+    let html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Folder: ${item.name}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <style>
+          body { font-family: 'Outfit', sans-serif; padding: 2rem; background: #0f111a; color: #fff; margin: 0; }
+          .container { max-width: 900px; margin: 0 auto; background: rgba(255, 255, 255, 0.03); padding: 2.5rem; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px); }
+          h1 { margin-top: 0; color: #fff; font-size: 2rem; display: flex; align-items: center; gap: 12px; }
+          .folder-meta { margin-bottom: 2rem; color: #94a3b8; font-size: 0.95rem; }
+          .files { list-style: none; padding: 0; margin: 0; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.08); }
+          .files li { padding: 16px 20px; background: rgba(255, 255, 255, 0.02); display: flex; justify-content: space-between; align-items: center; transition: background 0.2s; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+          .files li:last-child { border-bottom: none; }
+          .files li:hover { background: rgba(255, 255, 255, 0.05); }
+          .file-name { display: flex; align-items: center; gap: 12px; font-weight: 500; }
+          .file-name i { color: #38bdf8; font-size: 1.2rem; }
+          .files li a.download-btn { color: #fff; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.2); padding: 8px 16px; border-radius: 8px; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; }
+          .files li a.download-btn:hover { background: #38bdf8; color: #000; box-shadow: 0 0 15px rgba(56, 189, 248, 0.4); }
+          .btn-primary { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%); color: #fff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 1rem; margin-bottom: 24px; transition: all 0.3s; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3); }
+          .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(37, 99, 235, 0.5); }
+          .file-size { color: #64748b; font-size: 0.9rem; margin-right: 20px; }
+          .actions { display: flex; align-items: center; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1><i class="fa-solid fa-folder-open" style="color: #f59e0b;"></i> ${item.name}</h1>
+          <div class="folder-meta">Total Size: ${formatBytes(item.size)} &bull; ${item.files.length} Files</div>
+          <a href="?zip=true" class="btn-primary"><i class="fa-solid fa-file-zipper"></i> Download Folder as ZIP</a>
+          <ul class="files">
+    `;
+
+    item.files.forEach(f => {
+       const isImage = f.mimeType && f.mimeType.startsWith('image');
+       const icon = isImage ? 'fa-image' : 'fa-file-lines';
+       html += `<li>
+         <div class="file-name"><i class="fa-solid ${icon}"></i> ${f.relativePath}</div>
+         <div class="actions">
+           <span class="file-size">${formatBytes(f.size)}</span>
+           <a href="${baseUrl}/d/${id}/${encodeURIComponent(f.relativePath)}" class="download-btn"><i class="fa-solid fa-download"></i> Download</a>
+         </div>
+       </li>`;
+    });
+
+    html += `
+          </ul>
+        </div>
+      </body>
+      </html>
+    `;
+    return res.send(html);
+  }
+
+  // File logic
+  const filePath = path.join(UPLOADS_DIR, id, item.name);
   if (!fs.existsSync(filePath)) {
     return res.status(404).send('<h1>404 - File Not Found</h1><p>The file is missing from the server filesystem.</p>');
   }
 
-  // Increment download count
   db.files[fileIndex].downloads += 1;
   writeDatabase(db);
-
-  // Serve file for download
-  res.download(filePath, file.name, (err) => {
-    if (err) {
-      console.error(`Error sending file ${file.name}:`, err);
-      if (!res.headersSent) {
-        res.status(500).send('Error sending file');
-      }
-    }
+  res.download(filePath, item.name, (err) => {
+    if (err && !res.headersSent) res.status(500).send('Error sending file');
   });
 };
 
 app.get('/d/:id', downloadHandler);
-app.get('/d/:id/:filename', downloadHandler);
+app.get('/d/:id/*', downloadHandler);
 
 // Backward Compatibility Short URL Redirect Endpoint
 app.get('/s/:code', (req, res) => {

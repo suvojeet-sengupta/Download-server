@@ -17,6 +17,8 @@ const mobileMenuClose = document.getElementById('mobile-menu-close');
 
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
+const folderInput = document.getElementById('folder-input');
+
 const uploadsContainer = document.getElementById('uploads-container');
 const activeUploadsList = document.getElementById('active-uploads-list');
 
@@ -98,8 +100,38 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Drag & Drop File Upload Bindings
-  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('click', (e) => {
+    // Don't trigger file picker if user clicked one of the buttons
+    if (e.target.closest('.browse-files-btn') || e.target.closest('.browse-folder-btn')) return;
+    fileInput.click();
+  });
   fileInput.addEventListener('change', handleFileSelect);
+
+  const browseFilesBtn = document.querySelector('.browse-files-btn');
+  if (browseFilesBtn) {
+    browseFilesBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fileInput.click();
+    });
+  }
+  
+  const browseFolderBtn = document.querySelector('.browse-folder-btn');
+  if (browseFolderBtn) {
+    browseFolderBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      folderInput.click();
+    });
+  }
+
+  folderInput.addEventListener('change', (e) => {
+    const files = e.target.files;
+    if (files.length > 0) {
+      uploadFolder(files);
+    }
+    folderInput.value = '';
+  });
 
   ['dragenter', 'dragover'].forEach(eventName => {
     dropZone.addEventListener(eventName, (e) => {
@@ -565,7 +597,7 @@ function renderFiles(files) {
     const fileCard = document.createElement('div');
     fileCard.className = 'file-card glass-morphic';
     
-    const iconClass = getFileIcon(file.name);
+    const iconClass = file.type === 'folder' ? 'fa-solid fa-folder-open' : getFileIcon(file.name);
     const dateFormatted = formatDate(file.uploadedAt);
     const sizeFormatted = formatBytes(file.size);
 
@@ -751,6 +783,203 @@ function showToast(message, type = 'info') {
     toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
     setTimeout(() => toast.remove(), 300);
   }, 4000);
+}
+
+// --- Folder Upload Logic ---
+async function uploadFolder(fileList) {
+  try {
+    const files = Array.from(fileList).filter(f => f.size > 0);
+    
+    if (files.length === 0) {
+      showToast('No files found in the selected folder', 'error');
+      return;
+    }
+
+    const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+    const firstPath = files[0].webkitRelativePath || files[0].name;
+    const folderName = firstPath.split('/')[0] || 'Folder';
+    
+    console.log('[FolderUpload] Starting upload:', folderName, 'Files:', files.length, 'Size:', totalSize);
+    
+    let response;
+    try {
+      response = await fetch('/api/folder/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Password': PASSWORD },
+        body: JSON.stringify({ name: folderName, size: totalSize })
+      });
+    } catch (fetchErr) {
+      console.error('[FolderUpload] Failed to create folder:', fetchErr);
+      showToast('Network error creating folder: ' + fetchErr.message, 'error');
+      return;
+    }
+
+    const data = await response.json();
+    console.log('[FolderUpload] Create response:', data);
+    
+    if (!data.success) {
+      showToast(data.error || 'Failed to create folder', 'error');
+      return;
+    }
+    const folderId = data.folderId;
+    
+    const itemId = 'upload-' + Math.random().toString(36).substr(2, 9);
+    const uploadItem = document.createElement('div');
+    uploadItem.className = 'upload-item';
+    uploadItem.id = itemId;
+    uploadItem.innerHTML = `
+      <div class="upload-item-header">
+        <span class="upload-filename" title="${escapeHtml(folderName)}"><i class="fa-solid fa-folder"></i> ${escapeHtml(folderName)} (${files.length} files)</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="upload-percent" id="pct-${itemId}">0%</span>
+        </div>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="fill-${itemId}"></div>
+      </div>
+      <div class="upload-meta">
+        <span id="speed-${itemId}">Uploading folder...</span>
+        <span>${formatBytes(totalSize)}</span>
+      </div>
+    `;
+    uploadsContainer.classList.remove('hide');
+    activeUploadsList.appendChild(uploadItem);
+
+    let totalUploaded = 0;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      console.log(`[FolderUpload] Uploading file ${i + 1}/${files.length}: ${file.webkitRelativePath || file.name} (${file.size} bytes)`);
+      
+      const speedEl = document.getElementById(`speed-${itemId}`);
+      if (speedEl) speedEl.innerText = `Uploading ${i + 1}/${files.length}: ${file.name}`;
+      
+      try {
+        await uploadFileForFolder(file, folderId, itemId, totalUploaded, totalSize);
+        totalUploaded += file.size;
+        
+        const pct = Math.round((totalUploaded / totalSize) * 100);
+        const pctEl = document.getElementById(`pct-${itemId}`);
+        const fillEl = document.getElementById(`fill-${itemId}`);
+        if (pctEl) pctEl.innerText = pct + '%';
+        if (fillEl) fillEl.style.width = pct + '%';
+      } catch (err) {
+        console.error(`[FolderUpload] Failed on file ${file.name}:`, err);
+        handleUploadError(itemId, 'Failed: ' + (err.message || 'Unknown error'));
+        return;
+      }
+    }
+
+    console.log('[FolderUpload] All files uploaded successfully');
+    
+    const pctEl = document.getElementById(`pct-${itemId}`);
+    const speedEl = document.getElementById(`speed-${itemId}`);
+    const fillEl = document.getElementById(`fill-${itemId}`);
+    if (pctEl) pctEl.innerHTML = '<i class="fa-solid fa-circle-check" style="color:var(--success-gradient)"></i>';
+    if (speedEl) speedEl.innerText = 'Completed successfully!';
+    if (fillEl) fillEl.style.background = 'var(--success-gradient)';
+    
+    showToast(`Uploaded folder ${folderName}`, 'success');
+    
+    const baseUrl = window.location.origin;
+    copyToClipboard(`${baseUrl}/d/${folderId}`, false);
+    showToast(`Folder direct download link copied!`, 'info');
+
+    loadFiles();
+    
+    setTimeout(() => {
+      uploadItem.style.opacity = '0';
+      uploadItem.style.transition = 'opacity 0.5s ease';
+      setTimeout(() => {
+        uploadItem.remove();
+        if (activeUploadsList.children.length === 0) {
+          uploadsContainer.classList.add('hide');
+        }
+      }, 500);
+    }, 4000);
+  } catch (err) {
+    console.error('[FolderUpload] Unexpected error:', err);
+    showToast('Folder upload failed: ' + (err.message || 'Unknown error'), 'error');
+  }
+}
+
+function uploadFileForFolder(file, folderId, uiItemId, baseUploaded, totalSize) {
+    return new Promise(async (resolve, reject) => {
+        if (file.size === 0) {
+            return resolve();
+        }
+        
+        const fingerprint = getFileFingerprint(file) + '_' + folderId;
+        
+        try {
+            const initRes = await fetch('/api/upload/init', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Password': PASSWORD },
+                body: JSON.stringify({
+                    name: file.name,
+                    size: file.size,
+                    mimeType: file.type,
+                    chunkSize: CHUNK_SIZE,
+                    fingerprint: fingerprint,
+                    folderId: folderId,
+                    relativePath: file.webkitRelativePath
+                })
+            });
+            const initData = await initRes.json();
+            if (!initRes.ok) throw new Error(initData.error);
+            
+            let chunkIndex = initData.nextChunkIndex;
+            const uploadId = initData.uploadId;
+            
+            const uploadNext = () => {
+                const start = chunkIndex * CHUNK_SIZE;
+                if (start >= file.size) {
+                    resolve();
+                    return;
+                }
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+                
+                const formData = new FormData();
+                formData.append('uploadId', uploadId);
+                formData.append('chunkIndex', chunkIndex);
+                formData.append('chunk', chunk, file.name);
+                
+                const xhr = new XMLHttpRequest();
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const loadedOverall = baseUploaded + start + e.loaded;
+                        const pct = Math.round((loadedOverall / totalSize) * 100);
+                        const pctEl = document.getElementById(`pct-${uiItemId}`);
+                        const fillEl = document.getElementById(`fill-${uiItemId}`);
+                        if(pctEl) pctEl.innerText = pct + '%';
+                        if(fillEl) fillEl.style.width = pct + '%';
+                    }
+                });
+                
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200) {
+                        const res = JSON.parse(xhr.responseText);
+                        if (res.completed) {
+                            resolve();
+                        } else {
+                            chunkIndex = res.nextChunkIndex;
+                            uploadNext();
+                        }
+                    } else {
+                        reject(new Error('Chunk upload failed'));
+                    }
+                });
+                xhr.addEventListener('error', () => reject(new Error('Network error')));
+                xhr.open('POST', '/api/upload/chunk');
+                xhr.setRequestHeader('X-Password', PASSWORD);
+                xhr.send(formData);
+            };
+            
+            uploadNext();
+        } catch (err) {
+            reject(err);
+        }
+    });
 }
 
 // --- Formatters & Helper Utils ---

@@ -141,14 +141,19 @@
           <div class="upload-grid-wrapper">
             <!-- Drag and Drop Box -->
             <div class="uploader-box-container glass-morphic">
+              <input type="file" id="file-input" multiple class="hide">
+              <input type="file" id="folder-input" webkitdirectory directory multiple class="hide">
               <div id="drop-zone" class="uploader-drop-zone">
-                <input type="file" id="file-input" multiple class="hide">
                 <div class="drop-zone-display">
                   <div class="pulse-upload-circle">
                     <i class="fa-solid fa-arrow-up-from-bracket"></i>
                   </div>
                   <h3>Drag & Drop Files Here</h3>
-                  <p>Or click to <span class="browse-link-glow">select files from your device</span></p>
+                  <p style="margin-bottom: 15px; color: var(--text-muted);">Or browse your device:</p>
+                  <div style="display: flex; gap: 15px; justify-content: center; margin-bottom: 15px; flex-wrap: wrap;">
+                    <button class="btn-glow-primary browse-files-btn" type="button" style="position: relative; z-index: 10;"><i class="fa-solid fa-file-circle-plus"></i> Select Files</button>
+                    <button class="btn-glow-primary browse-folder-btn" type="button" style="position: relative; z-index: 10; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 20px rgba(245, 158, 11, 0.35);"><i class="fa-solid fa-folder-plus"></i> Select Folder</button>
+                  </div>
                   <div class="limit-tags">
                     <span><i class="fa-solid fa-cloud"></i> Max File Size: 10 GB</span>
                     <span><i class="fa-solid fa-bolt"></i> Resumable Support</span>
