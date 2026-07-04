@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
-const archiver = require('archiver');
+const { ZipArchive } = require('archiver');
 
 const app = express();
 const PORT = process.env.PORT || 3009;
@@ -526,7 +526,7 @@ app.get('/api/files', authenticate, (req, res) => {
   
   const filesWithUrls = sortedFiles.map(file => ({
     ...file,
-    downloadUrl: `${baseUrl}/d/${file.id}/${encodeURIComponent(file.name)}`,
+    downloadUrl: file.type === 'folder' ? `${baseUrl}/d/${file.id}` : `${baseUrl}/d/${file.id}/${encodeURIComponent(file.name)}`,
     directUrl: `${baseUrl}/d/${file.id}`
   }));
 
@@ -663,6 +663,82 @@ app.delete('/api/shorten/:code', authenticate, (req, res) => {
   res.json({ success: true });
 });
 
+// --- ZIP Background Task Logic ---
+const zipTasks = {};
+
+app.post('/api/zip/start/:id', (req, res) => {
+  const { id } = req.params;
+  const db = readDatabase();
+  const fileIndex = db.files.findIndex(f => f.id === id);
+  
+  if (fileIndex === -1) return res.status(404).send('Not found');
+  const item = db.files[fileIndex];
+  
+  if (zipTasks[id] && zipTasks[id].status === 'zipping') {
+    return res.json({ success: true, status: 'zipping' });
+  }
+
+  const zipPath = path.join(UPLOADS_DIR, `${id}.zip`);
+  if (fs.existsSync(zipPath)) {
+    return res.json({ success: true, status: 'done', url: `/api/zip/download/${id}` });
+  }
+
+  zipTasks[id] = { status: 'zipping', progress: 0, total: item.size };
+
+  const output = fs.createWriteStream(zipPath);
+  const archive = new ZipArchive({ zlib: { level: 9 } });
+
+  output.on('close', () => {
+    zipTasks[id] = { status: 'done', progress: 100, total: item.size, url: `/api/zip/download/${id}` };
+    
+    // Update download count
+    const currentDb = readDatabase();
+    const idx = currentDb.files.findIndex(f => f.id === id);
+    if (idx !== -1) {
+      currentDb.files[idx].downloads += 1;
+      writeDatabase(currentDb);
+    }
+  });
+
+  archive.on('error', (err) => {
+    zipTasks[id] = { status: 'error', error: err.message };
+  });
+
+  archive.on('progress', (data) => {
+    zipTasks[id].progress = data.fs.processedBytes;
+  });
+
+  archive.pipe(output);
+  archive.directory(path.join(UPLOADS_DIR, id), false);
+  archive.finalize();
+
+  res.json({ success: true, status: 'zipping' });
+});
+
+app.get('/api/zip/status/:id', (req, res) => {
+  const { id } = req.params;
+  if (!zipTasks[id]) {
+    const zipPath = path.join(UPLOADS_DIR, `${id}.zip`);
+    if (fs.existsSync(zipPath)) {
+      return res.json({ status: 'done', progress: 100, total: 100, url: `/api/zip/download/${id}` });
+    }
+    return res.json({ status: 'not_started' });
+  }
+  res.json(zipTasks[id]);
+});
+
+app.get('/api/zip/download/:id', (req, res) => {
+  const { id } = req.params;
+  const zipPath = path.join(UPLOADS_DIR, `${id}.zip`);
+  if (!fs.existsSync(zipPath)) return res.status(404).send('Zip not found');
+  
+  const db = readDatabase();
+  const fileIndex = db.files.findIndex(f => f.id === id);
+  const item = fileIndex > -1 ? db.files[fileIndex] : { name: id };
+
+  res.download(zipPath, `${item.name}.zip`);
+});
+
 // Download files (Direct Download)
 // Supports both /d/:id and /d/:id/*
 const downloadHandler = (req, res) => {
@@ -678,24 +754,9 @@ const downloadHandler = (req, res) => {
   const item = db.files[fileIndex];
 
   if (item.type === 'folder') {
-    if (req.query.zip === 'true') {
-      db.files[fileIndex].downloads += 1;
-      writeDatabase(db);
 
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${item.name}.zip"`);
-      
-      const archive = archiver('zip', { zlib: { level: 9 } });
-      archive.on('error', (err) => {
-        if (!res.headersSent) res.status(500).send('Error creating zip');
-      });
-      archive.pipe(res);
-      archive.directory(path.join(UPLOADS_DIR, id), false);
-      archive.finalize();
-      return;
-    }
 
-    if (filename) {
+    if (filename && filename !== item.name) {
       const file = item.files.find(f => f.name === filename || f.relativePath === filename);
       if (!file) return res.status(404).send('File not found in folder.');
       
@@ -738,7 +799,65 @@ const downloadHandler = (req, res) => {
         <div class="container">
           <h1><i class="fa-solid fa-folder-open" style="color: #f59e0b;"></i> ${item.name}</h1>
           <div class="folder-meta">Total Size: ${formatBytes(item.size)} &bull; ${item.files.length} Files</div>
-          <a href="?zip=true" class="btn-primary"><i class="fa-solid fa-file-zipper"></i> Download Folder as ZIP</a>
+          <div class="zip-progress-container" id="zip-progress-container" style="display: none; margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: 500;">
+              <span>Zipping Folder...</span>
+              <span id="zip-pct">0%</span>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 10px; overflow: hidden;">
+              <div id="zip-bar" style="background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+            </div>
+          </div>
+          <button id="zip-btn" class="btn-primary" onclick="startZip()" style="border:none; cursor:pointer;"><i class="fa-solid fa-file-zipper"></i> Download Folder as ZIP</button>
+          
+          <script>
+            async function startZip() {
+              document.getElementById('zip-btn').style.display = 'none';
+              document.getElementById('zip-progress-container').style.display = 'block';
+              
+              try {
+                const res = await fetch('/api/zip/start/${id}', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'done') {
+                  window.location.href = data.url;
+                  document.getElementById('zip-progress-container').style.display = 'none';
+                  document.getElementById('zip-btn').style.display = 'inline-flex';
+                  return;
+                }
+                pollZipStatus();
+              } catch (err) {
+                alert('Error starting zip');
+              }
+            }
+
+            async function pollZipStatus() {
+              try {
+                const res = await fetch('/api/zip/status/${id}');
+                const data = await res.json();
+                
+                if (data.status === 'zipping') {
+                  let pct = 0;
+                  if (data.total > 0) pct = Math.round((data.progress / data.total) * 100);
+                  document.getElementById('zip-pct').innerText = pct + '%';
+                  document.getElementById('zip-bar').style.width = pct + '%';
+                  setTimeout(pollZipStatus, 1000);
+                } else if (data.status === 'done') {
+                  document.getElementById('zip-pct').innerText = '100%';
+                  document.getElementById('zip-bar').style.width = '100%';
+                  setTimeout(() => {
+                    window.location.href = data.url;
+                    document.getElementById('zip-progress-container').style.display = 'none';
+                    document.getElementById('zip-btn').style.display = 'inline-flex';
+                  }, 1000);
+                } else if (data.status === 'error') {
+                  alert('Error creating zip: ' + data.error);
+                }
+              } catch (err) {
+                setTimeout(pollZipStatus, 1000);
+              }
+            }
+          </script>
+          
           <ul class="files">
     `;
 
