@@ -1,15 +1,28 @@
-version: '3.8'
-
 services:
   suvshare:
     build: .
     container_name: suvshare_app
-    ports:
-      - "${PORT}:${PORT}"
-    volumes:
-      - ./uploads:/app/uploads
-      - ./db.json:/app/db.json
-      - ./.env:/app/.env
+    # Only PASSWORD is mandatory in .env - everything else has a default here.
     env_file:
       - .env
-    restart: always
+    environment:
+      PORT: ${PORT:-3009}
+      DATA_DIR: /app/data
+      UPLOADS_DIR: /app/uploads
+    ports:
+      - "${PORT:-3009}:${PORT:-3009}"
+    volumes:
+      # Directory mounts only. Never bind mount a single file here: on a fresh
+      # host Docker creates a missing mount source as a directory, which is what
+      # silently killed the database on the previous setup.
+      # The ":z" suffix relabels for SELinux hosts (Fedora/RHEL) and is a no-op
+      # on Debian/Ubuntu, so this stays portable.
+      - ./uploads:/app/uploads:z
+      - ./data:/app/data:z
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:${PORT:-3009}/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped

@@ -17,13 +17,18 @@ if (!PASSWORD) {
   process.exit(1);
 }
 
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
+// Persistent locations. Both are plain DIRECTORIES so a bind mount on a fresh
+// host always works: Docker auto-creates a missing mount source as a directory.
+// The database therefore lives *inside* DATA_DIR and is never bind mounted as a
+// single file - that is exactly what produced the historical EISDIR bug.
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const TEMP_DIR = path.join(UPLOADS_DIR, 'temp');
 const MULTER_TEMP_DIR = path.join(UPLOADS_DIR, 'multer_temp');
-const DB_FILE = path.join(__dirname, 'db.json');
+const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 // Ensure directories exist
-[UPLOADS_DIR, TEMP_DIR, MULTER_TEMP_DIR].forEach(dir => {
+[UPLOADS_DIR, DATA_DIR, TEMP_DIR, MULTER_TEMP_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -32,25 +37,88 @@ const DB_FILE = path.join(__dirname, 'db.json');
 // Helper functions for database operations
 function readDatabase() {
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ files: [] }, null, 2));
+    writeDatabase({ files: [] });
     return { files: [] };
   }
   try {
     const data = fs.readFileSync(DB_FILE, 'utf8');
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    if (!parsed || !Array.isArray(parsed.files)) return { files: [] };
+    return parsed;
   } catch (error) {
     console.error('Error reading database file:', error);
     return { files: [] };
   }
 }
 
+// Atomic write: a crash mid-write must not truncate the index.
 function writeDatabase(data) {
+  const tmp = `${DB_FILE}.${process.pid}.tmp`;
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, DB_FILE);
   } catch (error) {
     console.error('Error writing database file:', error);
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (_) {}
   }
 }
+
+// One-time migration: older deployments kept db.json at the project root. Move
+// a real legacy file into DATA_DIR. A legacy *directory* at that path is the
+// symptom of the old broken bind mount, so it is ignored on purpose.
+function migrateLegacyDatabase() {
+  const legacy = path.join(__dirname, 'db.json');
+  if (fs.existsSync(DB_FILE) || !fs.existsSync(legacy)) return;
+  try {
+    if (!fs.statSync(legacy).isFile()) {
+      console.warn('[startup] Ignoring legacy db.json: it is a directory, not a file.');
+      return;
+    }
+    const parsed = JSON.parse(fs.readFileSync(legacy, 'utf8'));
+    writeDatabase(parsed);
+    console.log('[startup] Migrated legacy db.json into', DB_FILE);
+  } catch (error) {
+    console.warn('[startup] Could not migrate legacy db.json:', error.message);
+  }
+}
+
+// Self-heal: rebuild index entries for uploads present on disk but missing from
+// an empty database. Runs only when the database has no records, so it can
+// never duplicate or overwrite live data.
+function reindexOrphanUploads() {
+  const db = readDatabase();
+  if (db.files.length > 0) return;
+
+  const reserved = new Set(['temp', 'multer_temp']);
+  const recovered = [];
+
+  for (const entry of fs.readdirSync(UPLOADS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory() || reserved.has(entry.name)) continue;
+    const dir = path.join(UPLOADS_DIR, entry.name);
+    const contents = fs.readdirSync(dir, { withFileTypes: true }).filter(f => f.isFile());
+    if (contents.length !== 1) continue; // ambiguous (folder upload) - leave alone
+
+    const name = contents[0].name;
+    const stat = fs.statSync(path.join(dir, name));
+    recovered.push({
+      id: entry.name,
+      name,
+      type: 'file',
+      size: stat.size,
+      mimeType: 'application/octet-stream',
+      uploadedAt: stat.mtime.toISOString(),
+      downloads: 0
+    });
+  }
+
+  if (recovered.length === 0) return;
+  db.files.push(...recovered);
+  writeDatabase(db);
+  console.log(`[startup] Re-indexed ${recovered.length} orphaned upload(s) from disk.`);
+}
+
+migrateLegacyDatabase();
+reindexOrphanUploads();
 
 // Telegram alert integration
 function sendTelegramMessage(text) {
@@ -134,6 +202,20 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Explicit route for /
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Container healthcheck target. Unauthenticated on purpose, and it verifies the
+// index is actually readable/writable rather than only that the port is open -
+// a broken database mount must surface as "unhealthy", not as a silent failure.
+app.get('/healthz', (req, res) => {
+  try {
+    const db = readDatabase();
+    fs.accessSync(DATA_DIR, fs.constants.W_OK);
+    fs.accessSync(UPLOADS_DIR, fs.constants.W_OK);
+    res.json({ status: 'ok', items: db.files.length, uptime: Math.round(process.uptime()) });
+  } catch (error) {
+    res.status(503).json({ status: 'error', error: error.message });
+  }
 });
 
 // Configure Multer Disk Storage for temporary files

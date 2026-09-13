@@ -1,9 +1,12 @@
 # Environment secrets
 .env
 
-# Dynamic database & uploads
-db.json
+# Dynamic database & uploads (created automatically on first start)
+data/
 uploads/
+
+# Legacy database location, kept ignored for older checkouts
+db.json
 
 # Dependencies
 node_modules/
