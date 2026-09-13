@@ -503,3 +503,100 @@ input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ============================================================
+   Public share page (/d/<folder-id>)
+   Anyone with the link lands here. Same tokens as the app, no
+   management affordances, no external assets.
+   ============================================================ */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+body.share { background: var(--canvas); display: flex; flex-direction: column; min-height: 100%; }
+
+.share-top {
+  display: flex; align-items: center;
+  height: var(--topbar-h); padding: 0 20px; flex: none;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+}
+
+.share-main {
+  flex: 1; width: 100%; max-width: 860px;
+  margin: 0 auto; padding: 28px 20px 48px;
+}
+
+.share-head {
+  display: flex; align-items: center; gap: 14px;
+  padding-bottom: 20px; margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.share-icon {
+  display: grid; place-items: center; flex: none;
+  width: 44px; height: 44px;
+  background: var(--bg); color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: var(--r);
+}
+.share-icon svg { width: 23px; height: 23px; }
+.share-meta { min-width: 0; flex: 1; }
+.share-meta h1 { font-size: 19px; line-height: 1.25; word-break: break-word; }
+.share-meta p { margin: 3px 0 0; font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+.share-zip { padding: 14px 0 4px; }
+.share-zip-row {
+  display: flex; justify-content: space-between;
+  font-size: 13px; color: var(--ink-2); margin-bottom: 7px;
+}
+.share-zip-row span:last-child { font-variant-numeric: tabular-nums; color: var(--ink-3); }
+
+.share-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.share-table th {
+  padding: 10px 8px; text-align: left;
+  font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--ink-3); border-bottom: 1px solid var(--line);
+}
+.share-table td { padding: 0 8px; height: 50px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.share-table tr:hover td { background: var(--hover); }
+
+/* The cell stays a real table cell; the flex row lives in a wrapper inside it.
+   Making the <td> itself display:flex drops it out of table layout and the
+   column borders stop lining up. */
+.c-name { min-width: 0; }
+.t-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.t-icon { width: 19px; height: 19px; color: var(--ink-3); flex: none; }
+.t-text { min-width: 0; display: flex; flex-direction: column; }
+.t-file { font-size: 13.5px; font-weight: 480; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-dir { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.c-size { width: 110px; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.c-act { width: 48px; text-align: right; }
+.t-get {
+  display: inline-grid; place-items: center;
+  width: 34px; height: 34px;
+  color: var(--ink-2); border-radius: var(--r);
+  transition: background .12s, color .12s;
+}
+.t-get:hover { background: var(--active); color: var(--ink); }
+
+.share-empty { text-align: center; padding: 56px 20px; color: var(--ink-3); }
+.share-empty svg { width: 36px; height: 36px; stroke-width: 1.3; margin-bottom: 12px; }
+.share-empty p { margin: 0; font-size: 13.5px; }
+
+.share-foot {
+  flex: none; padding: 18px 20px calc(18px + env(safe-area-inset-bottom));
+  text-align: center; font-size: 12px; color: var(--ink-3);
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 620px) {
+  /* The app hides the wordmark on small screens to save room for search.
+     A public share page has no search, and naming the product matters more. */
+  body.share .brand-name { display: inline; }
+
+  .share-top { padding: 0 14px; }
+  .share-main { padding: 20px 14px 36px; }
+  .share-head { flex-wrap: wrap; gap: 12px; }
+  .share-head .btn { width: 100%; justify-content: center; }
+  .share-meta { flex: 1 1 auto; }
+  /* The size column is the first thing to go: the filename matters more. */
+  .share-table .c-size { display: none; }
+  .t-file { white-space: normal; word-break: break-word; }
+}

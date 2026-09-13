@@ -31,18 +31,22 @@ const EXTENSION_MAP: Record<string, Category> = {
  * first; the extension is the fallback because re-indexed uploads recovered
  * from disk carry a generic octet-stream type.
  */
-export function categoryOf(item: StoredItem): Category {
-  if (item.type === 'folder') return 'folder';
-
-  const mime = (item.mimeType || '').toLowerCase();
+/** Classifies any file by declared type first, then by extension. */
+export function categoryOfFile(name: string, mimeType: string): Category {
+  const mime = (mimeType || '').toLowerCase();
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
   if (mime === 'application/pdf' || mime.startsWith('text/')) return 'document';
   if (mime.includes('zip') || mime.includes('compressed') || mime.includes('tar')) return 'archive';
 
-  const ext = item.name.includes('.') ? item.name.split('.').pop()?.toLowerCase() ?? '' : '';
+  const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : '';
   return EXTENSION_MAP[ext] ?? 'other';
+}
+
+export function categoryOf(item: StoredItem): Category {
+  if (item.type === 'folder') return 'folder';
+  return categoryOfFile(item.name, item.mimeType);
 }
 
 /** Best-effort content type for inline preview of a re-indexed upload. */
