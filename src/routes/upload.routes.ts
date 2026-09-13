@@ -22,6 +22,7 @@ import {
 import type { FolderChild, StoredFile, StoredFolder, UploadMeta } from '../types/domain';
 import { isFolder } from '../types/domain';
 import { downloadUrlFor, resolveBaseUrl } from '../utils/http';
+import { withLinks } from '../utils/serialize';
 import { newItemId, newUploadId } from '../utils/ids';
 
 export const uploadRouter = Router();
@@ -78,7 +79,7 @@ uploadRouter.post('/api/upload', authenticate, upload.single('file'), (req, res)
     downloadUrl,
   });
 
-  res.json({ success: true, file: { ...record, downloadUrl, directUrl } });
+  res.json({ success: true, file: { ...withLinks(record, baseUrl), downloadUrl, directUrl } });
 });
 
 /** Registers an empty folder that chunked member uploads then populate. */
@@ -264,7 +265,11 @@ uploadRouter.post(
       downloadUrl,
     });
 
-    res.json({ success: true, completed: true, file: { ...record, downloadUrl, directUrl } });
+    res.json({
+      success: true,
+      completed: true,
+      file: { ...withLinks(record, baseUrl), downloadUrl, directUrl },
+    });
   },
 );
 

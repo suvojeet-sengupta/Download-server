@@ -39,6 +39,24 @@ export function removeItemFromDisk(id: string): void {
   }
 }
 
+/**
+ * Accepts a user-supplied display name and strips anything that could escape
+ * the share directory or confuse the filesystem. Returns null when nothing
+ * usable survives, which callers reject as a 400.
+ */
+export function sanitizeFileName(raw: string): string | null {
+  const trimmed = raw
+    // Directory separators would let a name escape its share directory.
+    .replace(/[/\\]/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    // Collapse leading dot runs so "../../x" cannot land as "....x".
+    .replace(/^\.+/, '')
+    .trim();
+
+  if (!trimmed || trimmed === '.' || trimmed === '..') return null;
+  return trimmed.slice(0, 255);
+}
+
 export function discardTempFile(filePath: string | undefined): void {
   if (!filePath) return;
   try {

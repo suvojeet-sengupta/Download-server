@@ -5,27 +5,10 @@ import { UPLOADS_DIR } from '../config/paths';
 import { readDatabase, writeDatabase } from '../db/database';
 import { isFolder } from '../types/domain';
 import { errorPage, resolveBaseUrl } from '../utils/http';
+import { resolveWithin, wildcardPath } from '../utils/paths';
 import { renderFolderPage } from '../views/folder-page';
 
 export const downloadRouter = Router();
-
-/**
- * Express 5 uses path-to-regexp v8, where a bare "*" is no longer a valid
- * pattern. The trailing segment is captured as a named wildcard instead, which
- * arrives as an array of path segments.
- */
-function wildcardPath(req: Request): string {
-  const splat = (req.params as Record<string, string | string[] | undefined>).splat;
-  if (Array.isArray(splat)) return splat.join('/');
-  return splat ?? '';
-}
-
-/** Blocks path traversal: the resolved target must stay inside its own share. */
-function resolveWithin(baseDir: string, relativePath: string): string | null {
-  const resolved = path.resolve(baseDir, relativePath);
-  const root = path.resolve(baseDir);
-  return resolved === root || resolved.startsWith(`${root}${path.sep}`) ? resolved : null;
-}
 
 function handleDownload(req: Request, res: Response): void {
   const { id } = req.params as { id: string };

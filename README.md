@@ -11,6 +11,27 @@ container.
 - URL shortener (`/s/<code>`)
 - Optional Telegram notification on every upload
 
+## Interface
+
+A file manager rather than an upload form: list and grid views, category
+filters, search, sorting, multi-select with bulk actions, rename, drag-and-drop
+upload with a live queue, and an in-place preview for images, video, audio, PDFs
+and text.
+
+The front end is dependency-free — no framework, no icon CDN, no web fonts. It
+ships as three static files and uses the system typeface, so it renders
+immediately and works offline once loaded. Layout adapts from a fixed sidebar on
+desktop to a drawer and floating action button on phones, and it follows the
+system light or dark preference.
+
+| Shortcut | Action |
+| --- | --- |
+| `/` | Focus search |
+| `Ctrl`/`Cmd` + `A` | Select everything in view |
+| `Delete` | Delete the selection |
+| `Esc` | Clear selection, close menus and previews |
+| `←` `→` | Move between files while previewing |
+
 ## Deploy on a fresh VPS
 
 Requires only Docker with the Compose plugin.
@@ -59,6 +80,30 @@ Every variable is documented inline in [`.env.example`](.env.example).
 | `TELEGRAM_BOT_TOKEN` | no | disabled | Upload alerts; needs the chat id too |
 | `TELEGRAM_CHAT_ID` | no | disabled | Destination chat for alerts |
 | `ZIP_COMPRESSION_LEVEL` | no | `1` | Folder ZIP level, `0`–`9` |
+
+## HTTP API
+
+Everything under `/api` requires the password, sent as an `x-password` header or
+a `?password=` query parameter. Share and preview links are public.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/verify` | Check the password |
+| `GET` | `/api/files` | List items with resolved links |
+| `GET` | `/api/stats` | Usage totals and per-category counts |
+| `POST` | `/api/upload` | Single-request upload |
+| `POST` | `/api/folder/create` | Register a folder |
+| `POST` | `/api/upload/init` | Open or resume a chunked session |
+| `POST` | `/api/upload/chunk` | Send one chunk |
+| `PATCH` | `/api/files/:id` | Rename |
+| `POST` | `/api/files/delete` | Bulk delete |
+| `DELETE` | `/api/files/:id` | Delete one |
+| `GET`/`POST` | `/api/shorten` | List or create short links |
+| `DELETE` | `/api/shorten/:code` | Remove a short link |
+| `POST`/`GET` | `/api/zip/start\|status/:id` | Folder archive lifecycle |
+| `GET` | `/d/:id[/name]` | Public download |
+| `GET` | `/p/:id[/name]` | Public inline preview |
+| `GET` | `/healthz` | Health probe |
 
 ## Persistent data
 
