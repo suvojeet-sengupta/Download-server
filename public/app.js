@@ -425,8 +425,10 @@
     menu.hidden = false;
 
     const r = menu.getBoundingClientRect();
-    menu.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
-    menu.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - r.width - 8)) + 'px';
+    // Flip above the anchor when there is not enough room below.
+    const top = y + r.height + 8 > window.innerHeight ? y - r.height - 30 : y;
+    menu.style.top = Math.max(8, top) + 'px';
 
     menu.onclick = async (e) => {
       const btn = e.target.closest('[data-m]');
@@ -609,9 +611,14 @@
       toggle(f.id, Number(row.dataset.index), e.shiftKey);
       return;
     }
-    if (e.target.closest('[data-act=more]')) {
-      const r = e.target.getBoundingClientRect();
-      openMenu(f, r.left - 150, r.bottom + 4);
+    const moreBtn = e.target.closest('[data-act=more]');
+    if (moreBtn) {
+      // The document-level close handler runs after this one as the event
+      // bubbles. Without stopping it, the menu we are about to open is hidden
+      // again in the same click.
+      e.stopPropagation();
+      const r = moreBtn.getBoundingClientRect();
+      openMenu(f, r.right - 186, r.bottom + 4);
       return;
     }
     if (state.selected.size > 0 || e.ctrlKey || e.metaKey) {
@@ -626,6 +633,7 @@
     const row = e.target.closest('.row');
     if (!row) return;
     e.preventDefault();
+    e.stopPropagation();
     const f = state.items.find((x) => x.id === row.dataset.id);
     if (f) openMenu(f, e.clientX, e.clientY);
   });

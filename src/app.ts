@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import { PUBLIC_DIR } from './config/paths';
 import { errorHandler } from './middleware/error-handler';
+import { requestLog } from './middleware/request-log';
 import { apiRouter } from './routes';
 
 /**
@@ -16,6 +17,8 @@ export function createApp(): Express {
   app.disable('x-powered-by');
 
   app.use(express.json());
+  // After the body parser so delete payloads are readable, before the routes.
+  app.use(requestLog);
 
   // Static assets are served before the routers so the root-level short-link
   // catch-all can never shadow a real file.
