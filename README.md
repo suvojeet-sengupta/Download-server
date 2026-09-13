@@ -1,7 +1,8 @@
 # SuvShare
 
 Self-hosted file and folder sharing with password-protected uploads and public
-download links. Node.js + Express, packaged as a single container.
+download links. TypeScript on Node 22 with Express 5, packaged as a single
+container.
 
 - Password-gated web UI for uploading files and whole folders
 - Public `/d/<id>` download links that need no login
@@ -76,12 +77,57 @@ rsync -av Download-server/ newhost:/root/Download-server/   # includes .env, upl
 ssh newhost 'cd /root/Download-server && docker compose up -d --build'
 ```
 
+## Project layout
+
+The server is organised by responsibility; nothing lives in a single top-level
+file.
+
+```
+src/
+  index.ts                  entrypoint: bootstrap, then listen
+  app.ts                    Express app assembly (no port binding, so it is testable)
+  config/
+    env.ts                  typed configuration, fails fast on a missing PASSWORD
+    paths.ts                persistent directory layout
+  types/domain.ts           StoredFile / StoredFolder / ShortLink / UploadMeta
+  db/database.ts            atomic index read+write, legacy migration, self-heal
+  middleware/
+    authenticate.ts         shared-password guard
+    error-handler.ts        terminal error handler, Multer aware
+  services/
+    storage.service.ts      capacity limits and disk cleanup
+    upload.service.ts       Multer config, chunk sessions, resumable merge
+    zip.service.ts          background folder archiving with progress
+    shortlink.service.ts    code generation and click accounting
+    telegram.service.ts     optional upload alerts
+  routes/                   one router per concern, aggregated in routes/index.ts
+  views/folder-page.ts      public folder landing page
+  utils/                    formatting, id generation, URL helpers
+```
+
+`StoredItem` is a discriminated union on `type`, so a folder can never be
+handled as a file by accident.
+
+## Development
+
+```bash
+npm install
+npm run dev          # watch mode against src/, reads .env
+npm run typecheck    # tsc --noEmit, strict
+npm run build        # emit dist/
+npm start            # run the compiled server
+```
+
+TypeScript runs in `strict` mode with `noUncheckedIndexedAccess`. The Docker
+build compiles in a builder stage and ships only `dist/` plus production
+dependencies.
+
 ## Operations
 
 ```bash
 docker compose logs -f            # follow logs
 docker compose restart            # restart in place
-docker compose up -d --build      # apply code changes
+docker compose up -d --build      # rebuild and apply code changes
 curl localhost:3009/healthz       # health probe used by the container
 ```
 
@@ -105,3 +151,7 @@ are writable, so a broken mount reports `unhealthy` instead of failing silently.
 - Compose bind mounts are directories only. Bind mounting a single file such as
   `db.json` breaks on a fresh host, because Docker creates the missing mount
   source as a directory and every read then fails with `EISDIR`.
+- Folder member downloads resolve inside the share directory only; a path that
+  escapes it is rejected rather than served.
+- Express 5 uses path-to-regexp v8, so the download catch-all is written as
+  `/d/:id/*splat` and the captured segments arrive as an array.

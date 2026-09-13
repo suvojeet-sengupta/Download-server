@@ -1,14 +1,28 @@
 {
   "name": "suvshare",
-  "version": "1.0.0",
-  "description": "Simple and cool file sharing server like Pixeldrain",
-  "main": "server.js",
+  "version": "2.0.0",
+  "description": "Self-hosted file and folder sharing with password-protected uploads and public download links",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "node --env-file=.env server.js"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "node --env-file=.env --watch -r tsx/cjs src/index.ts"
   },
   "dependencies": {
     "archiver": "^8.0.0",
-    "express": "^4.19.2",
-    "multer": "^1.4.5-lts.1"
+    "express": "^5.1.0",
+    "multer": "^2.0.2"
+  },
+  "devDependencies": {
+    "@types/archiver": "^8.0.0",
+    "@types/express": "^5.0.0",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }

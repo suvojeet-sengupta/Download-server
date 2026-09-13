@@ -17,3 +17,6 @@ npm-debug.log*
 Thumbs.db
 *.swp
 .*.swp
+
+# Build output
+dist/
